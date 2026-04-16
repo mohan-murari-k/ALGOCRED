@@ -43,7 +43,7 @@
     },
     {
       "name": "updateSubmissionStatus",
-      "desc": "Updates the status of a submission.",
+      "desc": "Updates the status of a submission (Hold=3 or Reject=2).\nOnly the bounty creator can call this.\nUses direct field assignment to avoid TEALScript v0.107.2 box_del/box_get bug.",
       "args": [
         {
           "name": "bountyId",
@@ -64,7 +64,7 @@
     },
     {
       "name": "payBounty",
-      "desc": "Batch payroll execution: pays out hunters who successfully submitted.\nThis is a simplified method demonstrating batch atomic transfers in TEAL.",
+      "desc": "Pays out the winning hunter and marks their submission as Approved.\nNOTE: We intentionally do NOT write back to the bounty box here to avoid\nthe TEALScript v0.107.2 full-struct box_del/box_get codegen bug (pc=659).\nThe frontend determines bounty closure by checking for any Approved (status=1) submission.",
       "args": [
         {
           "name": "bountyId",

@@ -374,15 +374,16 @@ setWinner:
 
 // updateSubmissionStatus(bountyId: uint64, hunter: Address, status: uint64): void
 //
-// Updates the status of a submission.
+// Updates the status of a submission (Hold=3 or Reject=2).
+// Only the bounty creator can call this.
+// Uses direct field assignment to avoid TEALScript v0.107.2 box_del/box_get bug.
 updateSubmissionStatus:
 	proto 3 0
 
 	// Push empty bytes after the frame pointer to reserve space for local variables
 	bytec 0 // 0x
-	dup
 
-	// contracts\AlgocredBountyManager.algo.ts:88
+	// contracts\AlgocredBountyManager.algo.ts:90
 	// key: [uint64, Address] = [bountyId, hunter]
 	frame_dig -1 // bountyId: uint64
 	itob
@@ -390,7 +391,7 @@ updateSubmissionStatus:
 	concat
 	frame_bury 0 // key: [uint64, Address]
 
-	// contracts\AlgocredBountyManager.algo.ts:89
+	// contracts\AlgocredBountyManager.algo.ts:91
 	// assert(this.submissions(key).exists)
 	frame_dig 0 // key: [uint64, Address]
 	box_len
@@ -398,16 +399,11 @@ updateSubmissionStatus:
 	pop
 	assert
 
-	// contracts\AlgocredBountyManager.algo.ts:90
-	// bounty = this.allBountys(bountyId).value
+	// contracts\AlgocredBountyManager.algo.ts:92
+	// assert(this.txn.sender === this.allBountys(bountyId).value.bountyCreator)
+	txn Sender
 	frame_dig -1 // bountyId: uint64
 	itob
-	frame_bury 1 // storage key//bounty
-
-	// contracts\AlgocredBountyManager.algo.ts:91
-	// assert(this.txn.sender === bounty.bountyCreator)
-	txn Sender
-	frame_dig 1 // storage key//bounty
 	box_get
 
 	// box value does not exist: this.allBountys(bountyId).value
@@ -418,7 +414,7 @@ updateSubmissionStatus:
 	==
 	assert
 
-	// contracts\AlgocredBountyManager.algo.ts:94
+	// contracts\AlgocredBountyManager.algo.ts:93
 	// this.submissions(key).value.status = status
 	frame_dig 0 // key: [uint64, Address]
 	box_get
@@ -466,25 +462,21 @@ updateSubmissionStatus:
 
 // payBounty(bountyId: uint64, developer: Address, payoutAmount: uint64): void
 //
-// Batch payroll execution: pays out hunters who successfully submitted.
-// This is a simplified method demonstrating batch atomic transfers in TEAL.
+// Pays out the winning hunter and marks their submission as Approved.
+// NOTE: We intentionally do NOT write back to the bounty box here to avoid
+// the TEALScript v0.107.2 full-struct box_del/box_get codegen bug (pc=659).
+// The frontend determines bounty closure by checking for any Approved (status=1) submission.
 payBounty:
 	proto 3 0
 
 	// Push empty bytes after the frame pointer to reserve space for local variables
 	bytec 0 // 0x
-	dup
 
-	// contracts\AlgocredBountyManager.algo.ts:102
-	// bounty = this.allBountys(bountyId).value
+	// contracts\AlgocredBountyManager.algo.ts:104
+	// assert(this.txn.sender === this.allBountys(bountyId).value.bountyCreator)
+	txn Sender
 	frame_dig -1 // bountyId: uint64
 	itob
-	frame_bury 0 // storage key//bounty
-
-	// contracts\AlgocredBountyManager.algo.ts:103
-	// assert(this.txn.sender === bounty.bountyCreator)
-	txn Sender
-	frame_dig 0 // storage key//bounty
 	box_get
 
 	// box value does not exist: this.allBountys(bountyId).value
@@ -495,27 +487,25 @@ payBounty:
 	==
 	assert
 
-	// contracts\AlgocredBountyManager.algo.ts:106
+	// contracts\AlgocredBountyManager.algo.ts:107
 	// subKey: [uint64, Address] = [bountyId, developer]
 	frame_dig -1 // bountyId: uint64
 	itob
 	frame_dig -2 // developer: Address
 	concat
-	frame_bury 1 // subKey: [uint64, Address]
+	frame_bury 0 // subKey: [uint64, Address]
 
-	// *if1_condition
-	// contracts\AlgocredBountyManager.algo.ts:107
-	// this.submissions(subKey).exists
-	frame_dig 1 // subKey: [uint64, Address]
+	// contracts\AlgocredBountyManager.algo.ts:108
+	// assert(this.submissions(subKey).exists)
+	frame_dig 0 // subKey: [uint64, Address]
 	box_len
 	swap
 	pop
-	bz *if1_end
+	assert
 
-	// *if1_consequent
-	// contracts\AlgocredBountyManager.algo.ts:108
+	// contracts\AlgocredBountyManager.algo.ts:109
 	// this.submissions(subKey).value.status = 1
-	frame_dig 1 // subKey: [uint64, Address]
+	frame_dig 0 // subKey: [uint64, Address]
 	box_get
 
 	// box value does not exist: this.submissions(subKey).value
@@ -524,77 +514,46 @@ payBounty:
 	load 255 // full array
 	bytec 4 // 0x0000000000000001
 	replace2 52
-	frame_dig 1 // subKey: [uint64, Address]
+	frame_dig 0 // subKey: [uint64, Address]
 	dup
 	box_del
 	pop
 	swap
 	box_put
 
-*if1_end:
 	// contracts\AlgocredBountyManager.algo.ts:112
-	// bounty.isClosed = 1
-	frame_dig 0 // storage key//bounty
-	box_get
-
-	// box value does not exist: this.allBountys(bountyId).value
-	assert
-	store 255 // full array
-	load 255 // full array
-	bytec 4 // 0x0000000000000001
-	replace2 88
-	frame_dig 0 // storage key//bounty
-	dup
-	box_del
-	pop
-	swap
-	box_put
-
-	// contracts\AlgocredBountyManager.algo.ts:113
-	// this.allBountys(bountyId).value = bounty
-	frame_dig -1 // bountyId: uint64
-	itob
-	dup
-	box_del
-	pop
-	frame_dig 0 // storage key//bounty
-	box_get
-
-	// box value does not exist: this.allBountys(bountyId).value
-	assert
-	box_put
-
-	// contracts\AlgocredBountyManager.algo.ts:116
 	// this.setWinner(developer)
 	frame_dig -2 // developer: Address
 	callsub setWinner
 
-	// contracts\AlgocredBountyManager.algo.ts:119
+	// contracts\AlgocredBountyManager.algo.ts:115
 	// sendPayment({
 	//       amount: payoutAmount,
 	//       receiver: developer,
-	//       sender: this.app.address
+	//       sender: this.app.address,
+	//       fee: 0,
 	//     })
 	itxn_begin
 	intc 0 //  pay
 	itxn_field TypeEnum
 
-	// contracts\AlgocredBountyManager.algo.ts:120
+	// contracts\AlgocredBountyManager.algo.ts:116
 	// amount: payoutAmount
 	frame_dig -3 // payoutAmount: uint64
 	itxn_field Amount
 
-	// contracts\AlgocredBountyManager.algo.ts:121
+	// contracts\AlgocredBountyManager.algo.ts:117
 	// receiver: developer
 	frame_dig -2 // developer: Address
 	itxn_field Receiver
 
-	// contracts\AlgocredBountyManager.algo.ts:122
+	// contracts\AlgocredBountyManager.algo.ts:118
 	// sender: this.app.address
 	global CurrentApplicationAddress
 	itxn_field Sender
 
-	// Fee field not set, defaulting to 0
+	// contracts\AlgocredBountyManager.algo.ts:119
+	// fee: 0
 	intc 3 // 0
 	itxn_field Fee
 
@@ -644,7 +603,7 @@ submitWork:
 	bytec 0 // 0x
 	dup
 
-	// contracts\AlgocredBountyManager.algo.ts:131
+	// contracts\AlgocredBountyManager.algo.ts:128
 	// assert(this.allBountys(bountyId).exists)
 	frame_dig -2 // bountyId: uint64
 	itob
@@ -653,12 +612,12 @@ submitWork:
 	pop
 	assert
 
-	// contracts\AlgocredBountyManager.algo.ts:132
+	// contracts\AlgocredBountyManager.algo.ts:129
 	// hunter = this.txn.sender
 	txn Sender
 	frame_bury 0 // hunter: address
 
-	// contracts\AlgocredBountyManager.algo.ts:133
+	// contracts\AlgocredBountyManager.algo.ts:130
 	// key: [uint64, Address] = [bountyId, hunter]
 	frame_dig -2 // bountyId: uint64
 	itob
@@ -666,7 +625,7 @@ submitWork:
 	concat
 	frame_bury 1 // key: [uint64, Address]
 
-	// contracts\AlgocredBountyManager.algo.ts:136
+	// contracts\AlgocredBountyManager.algo.ts:133
 	// assert(!this.submissions(key).exists)
 	frame_dig 1 // key: [uint64, Address]
 	box_len
@@ -675,7 +634,7 @@ submitWork:
 	!
 	assert
 
-	// contracts\AlgocredBountyManager.algo.ts:142
+	// contracts\AlgocredBountyManager.algo.ts:139
 	// assert(mbrPayment.receiver === this.app.address)
 	frame_dig -1 // mbrPayment: PayTxn
 	gtxns Receiver
@@ -683,7 +642,7 @@ submitWork:
 	==
 	assert
 
-	// contracts\AlgocredBountyManager.algo.ts:143
+	// contracts\AlgocredBountyManager.algo.ts:140
 	// assert(mbrPayment.sender === hunter)
 	frame_dig -1 // mbrPayment: PayTxn
 	gtxns Sender
@@ -691,7 +650,7 @@ submitWork:
 	==
 	assert
 
-	// contracts\AlgocredBountyManager.algo.ts:147
+	// contracts\AlgocredBountyManager.algo.ts:144
 	// this.submissions(key).value = {
 	//       hunter: hunter,
 	//       bountyId: bountyId,

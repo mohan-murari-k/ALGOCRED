@@ -82,44 +82,41 @@ export class AlgocredBountyManager extends Contract {
   }
 
   /**
-   * Updates the status of a submission.
+   * Updates the status of a submission (Hold=3 or Reject=2).
+   * Only the bounty creator can call this.
+   * Uses direct field assignment to avoid TEALScript v0.107.2 box_del/box_get bug.
    */
   updateSubmissionStatus(bountyId: uint64, hunter: Address, status: uint64): void {
     const key: [uint64, Address] = [bountyId, hunter];
     assert(this.submissions(key).exists);
-    const bounty = this.allBountys(bountyId).value;
-    assert(this.txn.sender === bounty.bountyCreator);
-
-    // Update only the status field to avoid entire struct re-assignment overhead/bugs
+    assert(this.txn.sender === this.allBountys(bountyId).value.bountyCreator);
     this.submissions(key).value.status = status;
   }
 
   /**
-   * Batch payroll execution: pays out hunters who successfully submitted.
-   * This is a simplified method demonstrating batch atomic transfers in TEAL.
+   * Pays out the winning hunter and marks their submission as Approved.
+   * NOTE: We intentionally do NOT write back to the bounty box here to avoid
+   * the TEALScript v0.107.2 full-struct box_del/box_get codegen bug (pc=659).
+   * The frontend determines bounty closure by checking for any Approved (status=1) submission.
    */
   payBounty(bountyId: uint64, developer: Address, payoutAmount: uint64): void {
-    const bounty = this.allBountys(bountyId).value;
-    assert(this.txn.sender === bounty.bountyCreator);
-    
-    // Update submission status to Approved (1)
+    // Verify sender is the bounty creator
+    assert(this.txn.sender === this.allBountys(bountyId).value.bountyCreator);
+
+    // Mark the winning submission as Approved via direct field assignment (avoids the TEALScript bug)
     const subKey: [uint64, Address] = [bountyId, developer];
-    if (this.submissions(subKey).exists) {
-        this.submissions(subKey).value.status = 1;
-    }
+    assert(this.submissions(subKey).exists);
+    this.submissions(subKey).value.status = 1;
 
-    // Mark bounty as closed
-    bounty.isClosed = 1;
-    this.allBountys(bountyId).value = bounty;
-
-    // Trigger reputation update
+    // Update winner reputation
     this.setWinner(developer);
 
-    // Actual payout
+    // Send the payout from the escrow (app address)
     sendPayment({
       amount: payoutAmount,
       receiver: developer,
-      sender: this.app.address
+      sender: this.app.address,
+      fee: 0,
     });
   }
 

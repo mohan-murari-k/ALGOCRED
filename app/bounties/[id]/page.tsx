@@ -60,7 +60,7 @@ export default function BountyDetailPage() {
         // ── Bounty data ──
         const boxName = algosdk.encodeUint64(bountyIdNum)
         const boxValue = await algorand.client.algod.getApplicationBoxByName(appId, boxName).do()
-        const abiType = algosdk.ABIType.from('(uint64,string,string,string,address,string,uint64,uint64,uint64,uint64,uint64)')
+        const abiType = algosdk.ABIType.from('(uint64,string,string,string,address,string,uint64,uint64,uint64,uint64,uint64,uint64)')
         const decoded = abiType.decode(boxValue.value) as any[]
 
         setBounty({
@@ -74,7 +74,7 @@ export default function BountyDetailPage() {
           reward: Number(decoded[6]) / 1e6,
           deadline: new Date(Number(decoded[7]) * 1000).toLocaleDateString(),
           applicants: Number(decoded[8]),
-          isClosed: Number(decoded[11]) === 1,
+          isClosed: false, // Derived from submissions below after we fetch them
         })
 
         // ── Submissions from on-chain boxes ──
@@ -111,6 +111,11 @@ export default function BountyDetailPage() {
           } catch (e) { console.error('Error decoding sub box:', e) }
         }
         setSubmissions(subs)
+        // Derive bounty closure: if any submission is Approved (status=1), bounty is closed
+        const hasApproved = subs.some(s => s.status === 1)
+        if (hasApproved) {
+          setBounty(prev => prev ? { ...prev, isClosed: true } : prev)
+        }
 
       } catch (err) {
         console.error('Fetch Error:', err)
@@ -349,18 +354,24 @@ export default function BountyDetailPage() {
                         )}
                       </div>
 
-                      {!bounty.isClosed && (
-                        <div className="flex flex-col gap-2">
+                      {/* Rejected: no actions possible; Approved: bounty closed; others: show relevant actions */}
+                      {isOwner && !bounty.isClosed && s.status !== 2 && s.status !== 1 && (
+                        <div className="flex flex-col gap-2 shrink-0">
+                          {/* Approve is always available unless already Rejected */}
                           <NeonButton size="sm" onClick={() => handlePayout(s.hunter_address, bounty.reward)} loading={payoutInProgress}>
-                            Approve & Payout
+                            ✓ Approve & Payout
                           </NeonButton>
                           <div className="flex gap-1">
-                            <button
-                              onClick={() => handleUpdateStatus(s.hunter_address, 3)}
-                              className="px-2 py-1 text-[10px] font-bold uppercase border border-warning-amber/50 text-warning-amber hover:bg-warning-amber/10 transition-colors rounded"
-                            >
-                              Hold
-                            </button>
+                            {/* Hold: can still approve or reject later */}
+                            {s.status !== 3 && (
+                              <button
+                                onClick={() => handleUpdateStatus(s.hunter_address, 3)}
+                                className="px-2 py-1 text-[10px] font-bold uppercase border border-warning-amber/50 text-warning-amber hover:bg-warning-amber/10 transition-colors rounded"
+                              >
+                                Hold
+                              </button>
+                            )}
+                            {/* Reject: permanently locks this submission */}
                             <button
                               onClick={() => handleUpdateStatus(s.hunter_address, 2)}
                               className="px-2 py-1 text-[10px] font-bold uppercase border border-neon-magenta/50 text-neon-magenta hover:bg-neon-magenta/10 transition-colors rounded"
